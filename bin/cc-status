@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Colors
+BOLD='\033[1m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+DIM='\033[2m'
+RESET='\033[0m'
+
+if [ ! -t 1 ]; then
+  BOLD='' CYAN='' YELLOW='' GREEN='' DIM='' RESET=''
+fi
+
+JSON_MODE=false
+
+usage() {
+  echo "Usage: cc-status [--json]"
+  echo ""
+  echo "Cross-project overview of session state."
+  echo "Scans \$CC_PROJECTS (colon-separated paths) or ~/projects/*/"
+  echo ""
+  echo "Options:"
+  echo "  --json    Output machine-readable JSON"
+  exit 0
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --json) JSON_MODE=true ;;
+    --help|-h) usage ;;
+    *) echo "Unknown argument: $arg"; usage ;;
+  esac
+done
+
+get_projects() {
+  if [ -n "${CC_PROJECTS:-}" ]; then
+    IFS=':' read -ra dirs <<< "$CC_PROJECTS"
+    for dir in "${dirs[@]}"; do
+      echo "$dir"
+    done
+  else
+    find "$HOME/projects" -maxdepth 1 -mindepth 1 -type d 2>/dev/null || true
+  fi
+}
+
+extract_section() {
+  local file="$1"
+  local section="$2"
+  # Extract lines under a ## heading until the next ## heading
+  awk "/^## ${section}/{found=1; next} found && /^## /{exit} found && NF{print}" "$file" 2>/dev/null | head -3
+}
+
+extract_last_session_date() {
+  local file="$1"
+  grep -m1 "^## Last session:" "$file" 2>/dev/null | sed 's/^## Last session: *//' || echo "unknown"
+}
+
+extract_branch() {
+  local file="$1"
+  grep -m1 "Branch:" "$file" 2>/dev/null | sed 's/.*Branch: *//' | tr -d '\r' || echo "—"
+}
+
+format_project() {
+  local project_dir="$1"
+  local name
+  name="$(basename "$project_dir")"
+  local session_file="$project_dir/.claude/SESSION.md"
+
+  if [ ! -f "$session_file" ]; then
+    if ! $JSON_MODE; then
+      echo -e "${CYAN}${BOLD}${name}${RESET}  ${DIM}(no SESSION.md)${RESET}"
+      echo ""
+    fi
+    return
+  fi
+
+  local last_date branch done_items next_items
+  last_date="$(extract_last_session_date "$session_file")"
+  branch="$(extract_branch "$session_file")"
+  done_items="$(extract_section "$session_file" "Done")"
+  next_items="$(extract_section "$session_file" "Next")"
+
+  if $JSON_MODE; then
+    # Emit one JSON object per project (caller assembles array)
+    printf '{"project":"%s","path":"%s","last_session":"%s","branch":"%s","done":%s,"next":%s}' \
+      "$name" \
+      "$project_dir" \
+      "$last_date" \
+      "$branch" \
+      "$(echo "$done_items" | jq -Rs '.' 2>/dev/null || echo '""')" \
+      "$(echo "$next_items" | jq -Rs '.' 2>/dev/null || echo '""')"
+    return
+  fi
+
+  echo -e "${CYAN}${BOLD}${name}${RESET}"
+  echo -e "  ${DIM}Last session:${RESET} ${last_date}   ${DIM}Branch:${RESET} ${branch}"
+
+  if [ -n "$done_items" ]; then
+    echo -e "  ${GREEN}Done:${RESET}"
+    while IFS= read -r line; do
+      [ -n "$line" ] && echo "    $line"
+    done <<< "$done_items"
+  fi
+
+  if [ -n "$next_items" ]; then
+    echo -e "  ${YELLOW}Next:${RESET}"
+    while IFS= read -r line; do
+      [ -n "$line" ] && echo "    $line"
+    done <<< "$next_items"
+  fi
+
+  echo ""
+}
+
+# --- Main ---
+
+if $JSON_MODE; then
+  first=true
+  echo "["
+  while IFS= read -r project; do
+    [ -d "$project" ] || continue
+    [ -f "$project/.claude/SESSION.md" ] || continue
+    $first || echo ","
+    format_project "$project"
+    first=false
+  done < <(get_projects)
+  echo ""
+  echo "]"
+else
+  echo -e "${BOLD}cc-status${RESET}"
+  echo ""
+  count=0
+  while IFS= read -r project; do
+    [ -d "$project" ] || continue
+    format_project "$project"
+    ((count++)) || true
+  done < <(get_projects)
+
+  if [ "$count" -eq 0 ]; then
+    echo "No projects found. Set CC_PROJECTS or create projects in ~/projects/"
+  fi
+fi

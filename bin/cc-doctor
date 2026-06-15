@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BOLD='\033[1m'
+RESET='\033[0m'
+
+if [ ! -t 1 ]; then
+  RED='' GREEN='' YELLOW='' BOLD='' RESET=''
+fi
+
+ALL_PROJECTS=false
+TOTAL_CHECKS=0
+PASSED_CHECKS=0
+FAILED_CHECKS=0
+WARNED_CHECKS=0
+
+usage() {
+  echo "Usage: cc-doctor [--all]"
+  echo ""
+  echo "Validate Claude Code setup for the current project (default) or all projects."
+  echo ""
+  echo "Options:"
+  echo "  --all    Scan all projects in \$CC_PROJECTS (colon-separated) or ~/projects/*/"
+  echo ""
+  echo "Exit codes:"
+  echo "  0   All checks pass"
+  echo "  1   One or more checks failed"
+  exit 0
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --all) ALL_PROJECTS=true ;;
+    --help|-h) usage ;;
+    *) echo "Unknown argument: $arg"; usage ;;
+  esac
+done
+
+pass()  { echo -e "  ${GREEN}✓${RESET} $1"; ((PASSED_CHECKS++)) || true; ((TOTAL_CHECKS++)) || true; }
+fail()  { echo -e "  ${RED}✗${RESET} $1"; ((FAILED_CHECKS++)) || true; ((TOTAL_CHECKS++)) || true; }
+warn()  { echo -e "  ${YELLOW}⚠${RESET} $1"; ((WARNED_CHECKS++)) || true; ((TOTAL_CHECKS++)) || true; }
+
+days_since() {
+  local file="$1"
+  local now
+  local modified
+  now=$(date +%s)
+  if [[ "$OSTYPE" == "darwin"* ]]; then
+    modified=$(stat -f %m "$file")
+  else
+    modified=$(stat -c %Y "$file")
+  fi
+  echo $(( (now - modified) / 86400 ))
+}
+
+run_checks() {
+  local project_dir="$1"
+  local project_name
+  project_name="$(basename "$project_dir")"
+
+  echo ""
+  echo -e "${BOLD}${project_name}${RESET}  (${project_dir})"
+
+  # Check: CLAUDE.md exists
+  if [ -f "$project_dir/CLAUDE.md" ]; then
+    pass "CLAUDE.md exists"
+  else
+    fail "CLAUDE.md missing — run cc-init"
+  fi
+
+  # Check: .claude/rules/shared symlink exists and is valid
+  local shared_link="$project_dir/.claude/rules/shared"
+  if [ -L "$shared_link" ]; then
+    if [ -d "$shared_link" ]; then
+      pass ".claude/rules/shared symlink valid"
+    else
+      fail ".claude/rules/shared symlink broken (target missing) — run cc-init"
+    fi
+  elif [ -e "$shared_link" ]; then
+    warn ".claude/rules/shared exists but is not a symlink"
+  else
+    fail ".claude/rules/shared missing — run cc-init"
+  fi
+
+  # Check: .claude/SESSION.md exists
+  local session_file="$project_dir/.claude/SESSION.md"
+  if [ -f "$session_file" ]; then
+    pass ".claude/SESSION.md exists"
+
+    # Warn if stale (>7 days)
+    local age
+    age=$(days_since "$session_file")
+    if [ "$age" -gt 7 ]; then
+      warn ".claude/SESSION.md not updated in ${age} days (stale session state)"
+    fi
+  else
+    warn ".claude/SESSION.md missing (no session tracking)"
+  fi
+
+  # Check: .gitignore contains required entries
+  local gitignore="$project_dir/.gitignore"
+  if [ -f "$gitignore" ]; then
+    local missing_entries=()
+    for entry in ".claude/SESSION.md" "CLAUDE.local.md" ".claude/settings.local.json"; do
+      if ! grep -qF "$entry" "$gitignore"; then
+        missing_entries+=("$entry")
+      fi
+    done
+    if [ ${#missing_entries[@]} -eq 0 ]; then
+      pass ".gitignore contains required entries"
+    else
+      for e in "${missing_entries[@]}"; do
+        fail ".gitignore missing: $e — run cc-init"
+      done
+    fi
+  else
+    warn ".gitignore not found"
+  fi
+
+  # Check: no stale override files (>30 days old)
+  local rules_dir="$project_dir/.claude/rules"
+  if [ -d "$rules_dir" ]; then
+    while IFS= read -r -d '' override_file; do
+      local age
+      age=$(days_since "$override_file")
+      if [ "$age" -gt 30 ]; then
+        warn "Stale override file (${age} days): $(basename "$override_file") — review or remove"
+      fi
+    done < <(find "$rules_dir" -maxdepth 1 -name "*.md" -not -name "shared" -print0 2>/dev/null)
+  fi
+}
+
+get_projects() {
+  if [ -n "${CC_PROJECTS:-}" ]; then
+    IFS=':' read -ra dirs <<< "$CC_PROJECTS"
+    for dir in "${dirs[@]}"; do
+      echo "$dir"
+    done
+  else
+    find "$HOME/projects" -maxdepth 1 -mindepth 1 -type d 2>/dev/null || true
+  fi
+}
+
+# --- Main ---
+
+if $ALL_PROJECTS; then
+  echo -e "${BOLD}cc-doctor --all${RESET}"
+  while IFS= read -r project; do
+    [ -d "$project" ] && run_checks "$project"
+  done < <(get_projects)
+else
+  if git rev-parse --show-toplevel &>/dev/null; then
+    project_root="$(git rev-parse --show-toplevel)"
+  else
+    project_root="$(pwd)"
+  fi
+  echo -e "${BOLD}cc-doctor${RESET}"
+  run_checks "$project_root"
+fi
+
+# --- Summary ---
+echo ""
+echo -e "${BOLD}Summary:${RESET} ${TOTAL_CHECKS} checks — ${GREEN}${PASSED_CHECKS} passed${RESET}, ${YELLOW}${WARNED_CHECKS} warnings${RESET}, ${RED}${FAILED_CHECKS} failed${RESET}"
+
+if [ "$FAILED_CHECKS" -gt 0 ]; then
+  exit 1
+fi

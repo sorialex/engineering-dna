@@ -1,0 +1,4 @@
+.env
+*.local.*
+!templates/*.local.*
+.DS_Store
