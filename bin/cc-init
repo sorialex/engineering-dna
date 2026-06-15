@@ -100,23 +100,7 @@ else
   create_shared_link
 fi
 
-# --- 3. Copy SESSION.md template ---
-SESSION_FILE="$PROJECT_ROOT/.claude/SESSION.md"
-SESSION_TEMPLATE="$DNA_HOME/templates/SESSION.md"
-
-if [ ! -f "$SESSION_FILE" ]; then
-  if $CHECK_ONLY; then
-    log_would "copy templates/SESSION.md → .claude/SESSION.md"
-  else
-    mkdir -p "$PROJECT_ROOT/.claude"
-    cp "$SESSION_TEMPLATE" "$SESSION_FILE"
-    log_created ".claude/SESSION.md"
-  fi
-else
-  log_skipped ".claude/SESSION.md (exists)"
-fi
-
-# --- 4. Copy or warn about CLAUDE.md ---
+# --- 3. Copy or warn about CLAUDE.md ---
 CLAUDE_FILE="$PROJECT_ROOT/CLAUDE.md"
 CLAUDE_TEMPLATE="$DNA_HOME/templates/CLAUDE.md"
 
@@ -135,7 +119,7 @@ else
   fi
 fi
 
-# --- 5. Copy settings.local.json ---
+# --- 4. Copy settings.local.json ---
 SETTINGS_FILE="$PROJECT_ROOT/.claude/settings.local.json"
 SETTINGS_TEMPLATE="$DNA_HOME/templates/settings.local.json"
 
@@ -151,10 +135,9 @@ else
   log_skipped ".claude/settings.local.json (exists)"
 fi
 
-# --- 6. Update .gitignore ---
+# --- 5. Update .gitignore ---
 GITIGNORE="$PROJECT_ROOT/.gitignore"
 REQUIRED_ENTRIES=(
-  ".claude/SESSION.md"
   "CLAUDE.local.md"
   ".claude/settings.local.json"
 )

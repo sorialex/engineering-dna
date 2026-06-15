@@ -50,7 +50,6 @@ project/.claude/rules/
 │   ├── code-review.md
 │   ├── commit-conventions.md
 │   ├── documentation.md
-│   ├── session-tracking.md
 │   └── testing-strategy.md
 └── testing-override.md            ← project-specific override
 ```

@@ -2,33 +2,7 @@
 
 Claude Code hooks execute shell commands in response to session lifecycle events. They run outside Claude's context — they can't block or modify Claude's behavior, but they can log, remind, and alert.
 
-`install.sh` handles hook installation automatically. This document explains how it works and how to add your own.
-
----
-
-## Installing the Session-End Hook
-
-Add the following to `~/.claude/settings.json` under the `hooks` key:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/on-session-end.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`install.sh` performs this merge automatically if `jq` is available. If `jq` is not installed, it prints the JSON block above and asks you to add it manually.
+engineering-dna does not ship any active hooks. This directory exists as infrastructure for projects that need them.
 
 ---
 
@@ -42,8 +16,6 @@ Claude Code supports hooks for several events:
 | `PreToolUse` | Before any tool call |
 | `PostToolUse` | After any tool call |
 | `Notification` | When Claude sends a notification |
-
-For most governance use cases, `Stop` is sufficient.
 
 ---
 
@@ -65,7 +37,26 @@ echo "[$(date -Iseconds)] Session ended in $(pwd)" >> ~/.claude/session-log.txt
 
 ---
 
-## Included Hooks
+## Installing a Hook
 
-**`on-session-end.sh`**
-Checks whether `.claude/SESSION.md` was modified in the last hour. If not, emits a reminder to update session state before closing. Useful when you forget to update SESSION.md mid-task.
+Add the hook to `~/.claude/settings.json` under the relevant event key:
+
+```json
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "~/.claude/hooks/your-hook.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Place the script in `~/.claude/hooks/` and make it executable. Hooks in this repo's `hooks/` directory can be copied there and customized.

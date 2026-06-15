@@ -19,7 +19,7 @@
 
 ## Shared Rules
 
-Shared engineering rules are loaded from `.claude/rules/shared/`. They cover agent behavior, testing strategy, commit conventions, documentation, session tracking, and code review standards.
+Shared engineering rules are loaded from `.claude/rules/shared/`. They cover agent behavior, testing strategy, commit conventions, documentation, and code review standards.
 
 Project-specific overrides live in `.claude/rules/` alongside (not inside) the `shared/` symlink.
 

@@ -86,26 +86,11 @@ run_checks() {
     fail ".claude/rules/shared missing — run cc-init"
   fi
 
-  # Check: .claude/SESSION.md exists
-  local session_file="$project_dir/.claude/SESSION.md"
-  if [ -f "$session_file" ]; then
-    pass ".claude/SESSION.md exists"
-
-    # Warn if stale (>7 days)
-    local age
-    age=$(days_since "$session_file")
-    if [ "$age" -gt 7 ]; then
-      warn ".claude/SESSION.md not updated in ${age} days (stale session state)"
-    fi
-  else
-    warn ".claude/SESSION.md missing (no session tracking)"
-  fi
-
   # Check: .gitignore contains required entries
   local gitignore="$project_dir/.gitignore"
   if [ -f "$gitignore" ]; then
     local missing_entries=()
-    for entry in ".claude/SESSION.md" "CLAUDE.local.md" ".claude/settings.local.json"; do
+    for entry in "CLAUDE.local.md" ".claude/settings.local.json"; do
       if ! grep -qF "$entry" "$gitignore"; then
         missing_entries+=("$entry")
       fi

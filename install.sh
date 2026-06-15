@@ -77,75 +77,16 @@ These rules apply to all projects. Project-specific rules in .claude/rules/ take
 Key rules active globally:
 - ai-agent-behavior.md: no scope creep, no phantom context, minimal diff
 - commit-conventions.md: conventional commits with mandatory scope
-- session-tracking.md: update SESSION.md at end of each session
 EOF
   log_done "~/.claude/CLAUDE.md (appended engineering-dna block)"
 fi
 
-# --- 4. Install hooks ---
-HOOKS_DIR="$CLAUDE_DIR/hooks"
-if [ ! -d "$HOOKS_DIR" ]; then
-  mkdir -p "$HOOKS_DIR"
-  log_done "~/.claude/hooks/"
-fi
-
-HOOK_DEST="$HOOKS_DIR/on-session-end.sh"
-HOOK_SRC="$DNA_HOME/hooks/on-session-end.sh"
-if [ -f "$HOOK_DEST" ]; then
-  log_skip "~/.claude/hooks/on-session-end.sh"
-else
-  cp "$HOOK_SRC" "$HOOK_DEST"
-  chmod +x "$HOOK_DEST"
-  log_done "~/.claude/hooks/on-session-end.sh"
-fi
-
-# --- 5. Wire hook into settings.json ---
-SETTINGS="$CLAUDE_DIR/settings.json"
-
-HOOK_JSON='{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/on-session-end.sh"
-          }
-        ]
-      }
-    ]
-  }
-}'
-
-if command -v jq &>/dev/null; then
-  if [ -f "$SETTINGS" ]; then
-    # Merge: add Stop hook if not already present
-    if jq -e '.hooks.Stop' "$SETTINGS" &>/dev/null; then
-      log_skip "~/.claude/settings.json Stop hook (already configured)"
-    else
-      tmp="$(mktemp)"
-      jq '. * {"hooks": {"Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "~/.claude/hooks/on-session-end.sh"}]}]}}' "$SETTINGS" > "$tmp"
-      mv "$tmp" "$SETTINGS"
-      log_done "~/.claude/settings.json (merged Stop hook)"
-    fi
-  else
-    echo "$HOOK_JSON" > "$SETTINGS"
-    log_done "~/.claude/settings.json"
-  fi
-else
-  log_warn "jq not found — add Stop hook to ~/.claude/settings.json manually:"
-  echo ""
-  echo "$HOOK_JSON"
-  echo ""
-fi
-
-# --- 6. Add bin/ to PATH hint ---
+# --- 4. Add bin/ to PATH hint ---
 echo ""
 echo -e "${BOLD}Setup complete.${RESET}"
 echo ""
 echo "Next steps:"
-echo "  1. Add bin/ to your PATH so cc-init, cc-doctor, cc-status are available:"
+echo "  1. Add bin/ to your PATH so cc-init and cc-doctor are available:"
 echo "     export PATH=\"\$PATH:$DNA_HOME/bin\""
 echo "     (add this to ~/.bashrc or ~/.zshrc)"
 echo ""

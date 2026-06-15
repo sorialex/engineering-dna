@@ -11,25 +11,23 @@ Claude Code loads `~/.claude/CLAUDE.md` and all files in `~/.claude/rules/` for 
 `install.sh` sets this up once:
 - Creates `~/.claude/rules/engineering-dna` as a symlink to this repo's `rules/` directory
 - Appends an import block to `~/.claude/CLAUDE.md` referencing the shared rules
-- Installs the session-end hook
 
 After install, every Claude Code session starts with engineering-dna rules already loaded. Zero per-project work.
 
 ### Layer 2: Scaffold (`cc-init`)
 
-For projects that need the full setup — session tracking, local overrides, settings — run `cc-init` once at project root. It:
+For projects that need the full setup — local overrides, settings — run `cc-init` once at project root. It:
 
 1. Creates `.claude/rules/shared/` as a symlink to `$CC_DNA_HOME/rules/`
-2. Copies `templates/SESSION.md` to `.claude/SESSION.md` (if missing)
-3. Copies `templates/CLAUDE.md` to `CLAUDE.md` (if missing, warns if present but incomplete)
-4. Copies `templates/settings.local.json` to `.claude/settings.local.json` (if missing)
-5. Updates `.gitignore` with required exclusions
+2. Copies `templates/CLAUDE.md` to `CLAUDE.md` (if missing, warns if present but incomplete)
+3. Copies `templates/settings.local.json` to `.claude/settings.local.json` (if missing)
+4. Updates `.gitignore` with required exclusions
 
 `cc-init` is idempotent. Running it twice on the same project is safe.
 
 ### Layer 3: Healthcheck (`cc-doctor`)
 
-Over time, projects drift. Someone deletes a symlink. Someone commits `SESSION.md`. Someone's override file grows stale. `cc-doctor` catches this:
+Over time, projects drift. Someone deletes a symlink. Someone's override file grows stale. `cc-doctor` catches this:
 
 ```bash
 cc-doctor              # Check current project
@@ -90,46 +88,11 @@ See `examples/contribute-back.md` for the full workflow.
 
 ---
 
-## Session Tracking
-
-Each project has `.claude/SESSION.md` — a plain markdown file that tracks working state between sessions. It's gitignored (personal state, not project history).
-
-The workflow:
-- **Session start**: Claude reads `SESSION.md` to reconstruct context
-- **Session end**: Claude updates `SESSION.md` with what was done, what's next
-- **Cross-project**: `cc-status` reads all `SESSION.md` files and prints a summary
-
-The session-end hook (`hooks/on-session-end.sh`) reminds you to update `SESSION.md` if it wasn't modified during the session.
-
----
-
 ## Hooks
 
 Claude Code hooks execute shell commands in response to lifecycle events (session start, session end, pre-tool, etc.). They can't block Claude but they can log, remind, and alert.
 
-engineering-dna ships one hook: `on-session-end.sh`. It checks whether `SESSION.md` was modified and emits a reminder if not.
-
-Install by adding to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/on-session-end.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`install.sh` handles this automatically if `jq` is available.
+engineering-dna ships no active hooks — the `hooks/` directory exists as infrastructure for custom project hooks. See `hooks/README.md` for how to write and install them.
 
 ---
 

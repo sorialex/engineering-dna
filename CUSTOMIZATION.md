@@ -87,12 +87,6 @@ Add your check in the `run_checks()` function. The `check` helper handles colore
   run: cc-doctor
 ```
 
-`cc-status --json` outputs machine-readable session state. Pipe it to whatever dashboard you use:
-
-```bash
-cc-status --json | your-ingest-command
-```
-
 ---
 
 ## Managing Multiple Forks

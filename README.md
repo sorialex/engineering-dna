@@ -6,13 +6,11 @@ A framework for governing AI coding agents (Claude Code) across multiple project
 
 ## The Problem
 
-Every project you work on with Claude Code starts from scratch. You explain the same coding standards. You re-establish the same testing strategy. You remind the agent not to over-abstract, not to scope-creep, not to hallucinate context. Session ends — state is gone. New project — start over.
+Every project you work on with Claude Code starts from scratch. You explain the same coding standards. You re-establish the same testing strategy. You remind the agent not to over-abstract, not to scope-creep, not to hallucinate context. New project — start over.
 
-Three things break at scale:
+Two things break at scale:
 
 **Repeated context**: Claude Code has no native cross-project memory. Every `CLAUDE.md` you write from scratch drifts from every other. Standards fragment. You end up with five slightly-different testing philosophies across five repos.
-
-**Lost session state**: When you close a session, the agent forgets everything. What was done, what's next, what traps to avoid. You spend the first 15 minutes of every session reconstructing context that should have been written down.
 
 **Inconsistent setup**: New projects don't inherit organizational standards. You bootstrap them manually, forget steps, and discover gaps three sessions in when something breaks in a way that a shared rule would have caught.
 
@@ -67,17 +65,15 @@ cc-doctor
 - `testing-strategy.md` — Testing standards and patterns
 - `commit-conventions.md` — Conventional commits policy
 - `documentation.md` — Documentation-first rules
-- `session-tracking.md` — Session state management
 - `code-review.md` — Pre-commit checklist
 
 **`bin/`** — CLI tools:
 - `cc-init` — Idempotent project bootstrapper (symlinks, templates, gitignore)
 - `cc-doctor` — Healthcheck for one or all projects
-- `cc-status` — Cross-project session overview
 
-**`hooks/`** — Claude Code hook scripts for enforcement at session boundaries
+**`hooks/`** — Claude Code hook infrastructure (no active hooks; see `hooks/README.md`)
 
-**`templates/`** — Starter `CLAUDE.md`, `SESSION.md`, `settings.local.json`
+**`templates/`** — Starter `CLAUDE.md`, `settings.local.json`
 
 See [HOW_IT_WORKS.md](HOW_IT_WORKS.md) for architecture details.
 
