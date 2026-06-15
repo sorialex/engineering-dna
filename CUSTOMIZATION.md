@@ -22,9 +22,9 @@ Rules files are plain markdown. Claude Code reads them as instructions. Keep the
 
 `templates/settings.local.json` is what gets copied to `.claude/settings.local.json`. Add permissions your projects commonly need.
 
-### `install.sh` — Edit paths and hooks if needed
+### `bin/cc-init` — Edit if you need to change setup behavior
 
-If your `~/.claude/` structure differs, or you want to install additional hooks, edit `install.sh`. It's well-commented and straightforward bash.
+The global setup logic (Phase 1) and project setup logic (Phase 2) both live in `bin/cc-init`. If your `~/.claude/` structure differs from the default, or you want to add additional setup steps, edit it there.
 
 ---
 

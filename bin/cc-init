@@ -9,159 +9,242 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
-# Degrade gracefully if terminal doesn't support colors
 if [ ! -t 1 ]; then
   RED='' GREEN='' YELLOW='' BLUE='' BOLD='' RESET=''
 fi
 
 CHECK_ONLY=false
+PROJECT_ONLY=false
 CREATED=0
 SKIPPED=0
 WARNED=0
 
 usage() {
-  echo "Usage: cc-init [--check]"
+  echo "Usage: cc-init [--check] [--project-only]"
   echo ""
-  echo "Bootstrap Claude Code setup for a project."
+  echo "Bootstrap Claude Code setup: global layer (~/.claude/) and project layer."
+  echo "Both phases are idempotent — safe to run multiple times."
   echo ""
   echo "Options:"
-  echo "  --check    Dry run: report what would be done without modifying anything"
+  echo "  --check         Dry run: report what would be done without modifying anything"
+  echo "  --project-only  Skip global layer setup (for CI or managed global configs)"
   exit 0
 }
-
-log_created() { echo -e "${GREEN}[created]${RESET} $1"; ((CREATED++)) || true; }
-log_skipped() { echo -e "${BLUE}[skip]${RESET}   $1"; ((SKIPPED++)) || true; }
-log_warn()    { echo -e "${YELLOW}[warn]${RESET}   $1"; ((WARNED++)) || true; }
-log_would()   { echo -e "${BLUE}[would]${RESET}  $1"; }
 
 for arg in "$@"; do
   case "$arg" in
     --check) CHECK_ONLY=true ;;
+    --project-only) PROJECT_ONLY=true ;;
     --help|-h) usage ;;
     *) echo "Unknown argument: $arg"; usage ;;
   esac
 done
 
-# Resolve project root
-if git rev-parse --show-toplevel &>/dev/null; then
-  PROJECT_ROOT="$(git rev-parse --show-toplevel)"
-else
-  PROJECT_ROOT="$(pwd)"
-fi
+# Resolve engineering-dna home (this script lives in $DNA_HOME/bin/)
+DNA_HOME="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+CLAUDE_DIR="$HOME/.claude"
 
-# Resolve engineering-dna home
-DNA_HOME="${CC_DNA_HOME:-$HOME/engineering-dna}"
-if [ ! -d "$DNA_HOME" ]; then
-  echo -e "${RED}[error]${RESET} engineering-dna not found at: $DNA_HOME"
-  echo "  Set CC_DNA_HOME or clone to ~/engineering-dna"
-  exit 1
-fi
+log_ok()      { local p="$1"; shift; echo -e "${GREEN}[${p}]${RESET} $* ${GREEN}✓${RESET}"; ((CREATED++)) || true; }
+log_skip()    { local p="$1"; shift; echo -e "${BLUE}[${p}]${RESET} $* ${BLUE}-${RESET}"; ((SKIPPED++)) || true; }
+log_warn()    { local p="$1"; shift; echo -e "${YELLOW}[${p}]${RESET} $* ${YELLOW}⚠${RESET}"; ((WARNED++)) || true; }
+log_would()   { local p="$1"; shift; echo -e "${BLUE}[${p}]${RESET} $* (would create)"; }
 
-echo -e "${BOLD}cc-init${RESET} → ${PROJECT_ROOT}"
-echo ""
+# ─── Phase 1: Global layer ────────────────────────────────────────────────────
 
-# --- 1. Create .claude/rules/ ---
-RULES_DIR="$PROJECT_ROOT/.claude/rules"
-if [ ! -d "$RULES_DIR" ]; then
-  if $CHECK_ONLY; then
-    log_would "create .claude/rules/"
-  else
-    mkdir -p "$RULES_DIR"
-    log_created ".claude/rules/"
-  fi
-else
-  log_skipped ".claude/rules/ (exists)"
-fi
+setup_global() {
+  echo -e "${BOLD}Global (~/.claude/)${RESET}"
 
-# --- 2. Create shared symlink ---
-SHARED_LINK="$RULES_DIR/shared"
-SHARED_TARGET="$DNA_HOME/rules"
-
-create_shared_link() {
-  if $CHECK_ONLY; then
-    log_would "create .claude/rules/shared → $SHARED_TARGET"
+  if [ ! -d "$CLAUDE_DIR" ]; then
+    log_warn "global" "~/.claude/ not found — Claude Code may not be installed; skipping global setup"
+    echo ""
     return
   fi
-  ln -sfn "$SHARED_TARGET" "$SHARED_LINK"
-  log_created ".claude/rules/shared → $SHARED_TARGET"
-}
 
-if [ -L "$SHARED_LINK" ]; then
-  current_target="$(readlink "$SHARED_LINK")"
-  if [ "$current_target" = "$SHARED_TARGET" ]; then
-    log_skipped ".claude/rules/shared (symlink correct)"
+  # Create ~/.claude/rules/
+  if [ ! -d "$CLAUDE_DIR/rules" ]; then
+    if $CHECK_ONLY; then
+      log_would "global" "~/.claude/rules/"
+    else
+      mkdir -p "$CLAUDE_DIR/rules"
+      log_ok "global" "~/.claude/rules/ (created)"
+    fi
   else
-    log_warn ".claude/rules/shared points to $current_target (expected $SHARED_TARGET)"
-    create_shared_link
+    log_skip "global" "~/.claude/rules/"
   fi
-elif [ -e "$SHARED_LINK" ]; then
-  log_warn ".claude/rules/shared exists but is not a symlink — skipping"
-else
-  create_shared_link
-fi
 
-# --- 3. Copy or warn about CLAUDE.md ---
-CLAUDE_FILE="$PROJECT_ROOT/CLAUDE.md"
-CLAUDE_TEMPLATE="$DNA_HOME/templates/CLAUDE.md"
+  # Symlink ~/.claude/rules/engineering-dna → $DNA_HOME/rules
+  local global_link="$CLAUDE_DIR/rules/engineering-dna"
+  local global_target="$DNA_HOME/rules"
 
-if [ ! -f "$CLAUDE_FILE" ]; then
-  if $CHECK_ONLY; then
-    log_would "copy templates/CLAUDE.md → CLAUDE.md"
-  else
-    cp "$CLAUDE_TEMPLATE" "$CLAUDE_FILE"
-    log_created "CLAUDE.md"
-  fi
-else
-  if grep -q "shared" "$CLAUDE_FILE" || grep -q "engineering-dna" "$CLAUDE_FILE" || grep -q "\.claude/rules" "$CLAUDE_FILE"; then
-    log_skipped "CLAUDE.md (exists, references shared rules)"
-  else
-    log_warn "CLAUDE.md exists but doesn't reference .claude/rules/ — consider adding: @.claude/rules/shared/ai-agent-behavior.md"
-  fi
-fi
-
-# --- 4. Copy settings.local.json ---
-SETTINGS_FILE="$PROJECT_ROOT/.claude/settings.local.json"
-SETTINGS_TEMPLATE="$DNA_HOME/templates/settings.local.json"
-
-if [ ! -f "$SETTINGS_FILE" ]; then
-  if $CHECK_ONLY; then
-    log_would "copy templates/settings.local.json → .claude/settings.local.json"
-  else
-    mkdir -p "$PROJECT_ROOT/.claude"
-    cp "$SETTINGS_TEMPLATE" "$SETTINGS_FILE"
-    log_created ".claude/settings.local.json"
-  fi
-else
-  log_skipped ".claude/settings.local.json (exists)"
-fi
-
-# --- 5. Update .gitignore ---
-GITIGNORE="$PROJECT_ROOT/.gitignore"
-REQUIRED_ENTRIES=(
-  "CLAUDE.local.md"
-  ".claude/settings.local.json"
-)
-
-update_gitignore() {
-  local entry="$1"
-  if [ -f "$GITIGNORE" ] && grep -qF "$entry" "$GITIGNORE"; then
-    log_skipped ".gitignore: $entry (already present)"
+  if [ -L "$global_link" ]; then
+    local current
+    current="$(readlink "$global_link")"
+    if [ "$current" = "$global_target" ]; then
+      log_skip "global" "~/.claude/rules/engineering-dna"
+    else
+      if $CHECK_ONLY; then
+        log_would "global" "~/.claude/rules/engineering-dna → $global_target (update)"
+      else
+        ln -sfn "$global_target" "$global_link"
+        log_ok "global" "~/.claude/rules/engineering-dna → $global_target (updated)"
+      fi
+    fi
+  elif [ -e "$global_link" ]; then
+    log_warn "global" "~/.claude/rules/engineering-dna exists but is not a symlink — skipping"
   else
     if $CHECK_ONLY; then
-      log_would "add to .gitignore: $entry"
+      log_would "global" "~/.claude/rules/engineering-dna → $global_target"
     else
-      echo "$entry" >> "$GITIGNORE"
-      log_created ".gitignore: $entry"
+      ln -sfn "$global_target" "$global_link"
+      log_ok "global" "~/.claude/rules/engineering-dna → $global_target"
     fi
   fi
+
+  # Append block to ~/.claude/CLAUDE.md if not already present
+  local global_claude="$CLAUDE_DIR/CLAUDE.md"
+  local marker="# engineering-dna"
+
+  if [ -f "$global_claude" ] && grep -qF "$marker" "$global_claude"; then
+    log_skip "global" "~/.claude/CLAUDE.md (engineering-dna block present)"
+  else
+    if $CHECK_ONLY; then
+      log_would "global" "~/.claude/CLAUDE.md (append engineering-dna block)"
+    else
+      cat >> "$global_claude" << 'EOF'
+
+# engineering-dna
+
+Shared engineering rules are loaded from ~/.claude/rules/engineering-dna/.
+These rules apply to all projects. Project-specific rules in .claude/rules/ take precedence.
+
+Key rules active globally:
+- ai-agent-behavior.md: no scope creep, no phantom context, minimal diff
+- commit-conventions.md: conventional commits with mandatory scope
+EOF
+      log_ok "global" "~/.claude/CLAUDE.md (appended engineering-dna block)"
+    fi
+  fi
+
+  echo ""
 }
 
-for entry in "${REQUIRED_ENTRIES[@]}"; do
-  update_gitignore "$entry"
-done
+# ─── Phase 2: Project layer ───────────────────────────────────────────────────
 
-# --- Summary ---
+setup_project() {
+  # Resolve project root
+  local project_root
+  if git rev-parse --show-toplevel &>/dev/null; then
+    project_root="$(git rev-parse --show-toplevel)"
+  else
+    project_root="$(pwd)"
+  fi
+
+  echo -e "${BOLD}Project (${project_root})${RESET}"
+
+  local rules_dir="$project_root/.claude/rules"
+  local shared_link="$rules_dir/shared"
+  local shared_target="$DNA_HOME/rules"
+
+  # Create .claude/rules/
+  if [ ! -d "$rules_dir" ]; then
+    if $CHECK_ONLY; then
+      log_would "project" ".claude/rules/"
+    else
+      mkdir -p "$rules_dir"
+      log_ok "project" ".claude/rules/ (created)"
+    fi
+  else
+    log_skip "project" ".claude/rules/"
+  fi
+
+  # Create shared symlink
+  if [ -L "$shared_link" ]; then
+    local current_target
+    current_target="$(readlink "$shared_link")"
+    if [ "$current_target" = "$shared_target" ]; then
+      log_skip "project" ".claude/rules/shared"
+    else
+      if $CHECK_ONLY; then
+        log_would "project" ".claude/rules/shared → $shared_target (update)"
+      else
+        ln -sfn "$shared_target" "$shared_link"
+        log_ok "project" ".claude/rules/shared → $shared_target (updated)"
+      fi
+    fi
+  elif [ -e "$shared_link" ]; then
+    log_warn "project" ".claude/rules/shared exists but is not a symlink — skipping"
+  else
+    if $CHECK_ONLY; then
+      log_would "project" ".claude/rules/shared → $shared_target"
+    else
+      ln -sfn "$shared_target" "$shared_link"
+      log_ok "project" ".claude/rules/shared → $shared_target"
+    fi
+  fi
+
+  # Copy or warn about CLAUDE.md
+  local claude_file="$project_root/CLAUDE.md"
+  local claude_template="$DNA_HOME/templates/CLAUDE.md"
+
+  if [ ! -f "$claude_file" ]; then
+    if $CHECK_ONLY; then
+      log_would "project" "CLAUDE.md (from template)"
+    else
+      cp "$claude_template" "$claude_file"
+      log_ok "project" "CLAUDE.md (created from template)"
+    fi
+  else
+    if grep -q "shared\|engineering-dna\|\.claude/rules" "$claude_file"; then
+      log_skip "project" "CLAUDE.md (references shared rules)"
+    else
+      log_warn "project" "CLAUDE.md exists but doesn't reference .claude/rules/ — consider adding: @.claude/rules/shared/ai-agent-behavior.md"
+    fi
+  fi
+
+  # Copy settings.local.json
+  local settings_file="$project_root/.claude/settings.local.json"
+  local settings_template="$DNA_HOME/templates/settings.local.json"
+
+  if [ ! -f "$settings_file" ]; then
+    if $CHECK_ONLY; then
+      log_would "project" ".claude/settings.local.json (from template)"
+    else
+      mkdir -p "$project_root/.claude"
+      cp "$settings_template" "$settings_file"
+      log_ok "project" ".claude/settings.local.json (created from template)"
+    fi
+  else
+    log_skip "project" ".claude/settings.local.json"
+  fi
+
+  # Update .gitignore
+  local gitignore="$project_root/.gitignore"
+  local required_entries=("CLAUDE.local.md" ".claude/settings.local.json")
+
+  for entry in "${required_entries[@]}"; do
+    if [ -f "$gitignore" ] && grep -qF "$entry" "$gitignore"; then
+      log_skip "project" ".gitignore: $entry"
+    else
+      if $CHECK_ONLY; then
+        log_would "project" ".gitignore: $entry"
+      else
+        echo "$entry" >> "$gitignore"
+        log_ok "project" ".gitignore: $entry (added)"
+      fi
+    fi
+  done
+
+  echo ""
+}
+
+# ─── Main ─────────────────────────────────────────────────────────────────────
+
+echo -e "${BOLD}cc-init${RESET}"
 echo ""
+
+$PROJECT_ONLY || setup_global
+setup_project
+
 echo -e "${BOLD}Done.${RESET}"
 if $CHECK_ONLY; then
   echo "  (dry run — no files were modified)"

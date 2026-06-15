@@ -43,12 +43,12 @@ Three layers, all built on Claude Code's native infrastructure:
 ```bash
 # 1. Clone engineering-dna somewhere permanent
 git clone https://github.com/sorialex/engineering-dna ~/engineering-dna
-cd ~/engineering-dna
 
-# 2. Install global layer (modifies ~/.claude/)
-./install.sh
+# 2. Add to PATH
+export PATH="$HOME/engineering-dna/bin:$PATH"
+# (add this line to ~/.bashrc or ~/.zshrc)
 
-# 3. Bootstrap a project
+# 3. Bootstrap a project — sets up global ~/.claude/ and project .claude/ in one shot
 cd ~/projects/my-project
 cc-init
 

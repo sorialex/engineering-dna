@@ -8,15 +8,15 @@ engineering-dna has three layers, each mapping directly to Claude Code's native 
 
 Claude Code loads `~/.claude/CLAUDE.md` and all files in `~/.claude/rules/` for every session, regardless of which project you're in. This is the "always on" layer.
 
-`install.sh` sets this up once:
+`cc-init` sets this up on first run (Phase 1):
 - Creates `~/.claude/rules/engineering-dna` as a symlink to this repo's `rules/` directory
 - Appends an import block to `~/.claude/CLAUDE.md` referencing the shared rules
 
-After install, every Claude Code session starts with engineering-dna rules already loaded. Zero per-project work.
+After the first `cc-init` in any project, every subsequent Claude Code session loads engineering-dna rules automatically. Use `--project-only` to skip this phase if the global layer is managed separately.
 
 ### Layer 2: Scaffold (`cc-init`)
 
-For projects that need the full setup — local overrides, settings — run `cc-init` once at project root. It:
+`cc-init` also handles per-project setup (Phase 2). Run it once at project root. It:
 
 1. Creates `.claude/rules/shared/` as a symlink to `$CC_DNA_HOME/rules/`
 2. Copies `templates/CLAUDE.md` to `CLAUDE.md` (if missing, warns if present but incomplete)
@@ -106,4 +106,4 @@ Claude Code loads context in this order (later = higher precedence):
 4. `project/.claude/rules/*.md` — project rules directory
 5. `project/CLAUDE.local.md` — personal overrides (gitignored)
 
-engineering-dna layers on top of this hierarchy without replacing it. Layer 1 (install.sh) populates levels 1-2. Layer 2 (cc-init) populates levels 3-4. Level 5 is always available for personal overrides that shouldn't be shared.
+engineering-dna layers on top of this hierarchy without replacing it. `cc-init` Phase 1 populates levels 1-2; Phase 2 populates levels 3-4. Level 5 is always available for personal overrides that shouldn't be shared.
