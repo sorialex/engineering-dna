@@ -97,7 +97,7 @@ See [HOW_IT_WORKS.md](HOW_IT_WORKS.md) for architecture details.
 
 ## Related Projects
 
-- [ai-coding-patterns](https://github.com/sorialex/ai-coding-patterns) — Behavioral catalog of AI agent failure modes. The rules in `rules/ai-agent-behavior.md` were derived from patterns documented there.
+- [ai-coding-patterns](https://github.com/sorialex/ai-coding-patterns) — Behavioral catalog of AI agent failure modes covering patterns P-01 through P-10: UI completeness, state lifecycle, code duplication, structural fixes, and complexity thresholds. The rules in `rules/ai-agent-behavior.md` are the operationalized mitigations from that catalog.
 - [test-knowledge](https://github.com/sorialex/test-knowledge) — Testing taxonomy and knowledge base. Feeds into `rules/testing-strategy.md`.
 
 ---

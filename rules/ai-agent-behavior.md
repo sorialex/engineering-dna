@@ -1,47 +1,99 @@
 # AI Agent Behavior Rules
 
-These rules govern how AI coding agents (Claude Code) should behave in this codebase. They are defensive rules derived from real failure patterns.
+Defensive rules for AI coding agents based on real failure patterns.
+Each rule references the pattern(s) it mitigates from the companion
+catalog [ai-coding-patterns](https://github.com/sorialex/ai-coding-patterns).
+
+The core problem is not that agents do too much — it's that they apply
+tunnel vision, making the narrowest possible change without considering
+broader context, lifecycle, or existing infrastructure.
 
 ---
 
-## Scope
+## Search before creating (P-06, P-09)
 
-**No scope creep.** Do not refactor, rename, or restructure code beyond what the task explicitly asks for. If you notice improvement opportunities while working, note them in a comment or session notes — do not act on them without explicit instruction.
+Before writing any helper function, utility, constant, or async pattern,
+search the codebase for existing implementations. Look for the function
+name, the expression pattern, and the constant value. If the same logic
+exists in 2+ places, extract it to a shared module before adding a new
+use. Identical `uuid4().hex[:8]` in three modules means you're
+reproducing from pattern-match, not reusing.
 
-**Minimal diff principle.** The best change is the smallest one that solves the problem. Prefer targeted edits over rewrites. If the fix is three lines, the diff should be approximately three lines.
+## Model the complete lifecycle (P-03, P-04, P-05)
 
-**No silent modifications.** Every file you change must trace to a specific requirement in the current task. If you modify a file, state why in your response.
+When implementing any stateful flow, model the full lifecycle:
+initialization, forward path, error paths, cancellation, reset, and
+re-entry. A "completed" state is never terminal unless explicitly
+specified. The flow must own its state cleanup on every exit path —
+success, cancellation, and error. Do not rely on callers to
+reinitialize.
 
----
+## Handle re-entry from external navigation (P-04)
 
-## Context
+Any flow reachable from an external entry point (navigation, button in
+another view, deep link) must verify it's in its initial state before
+activating. After a previous successful run, external navigation must
+not land the user at the last completed step.
 
-**No phantom context.** Do not assume knowledge about the codebase that wasn't provided or read from files. If you're unsure how something works, read the file. If you can't read the file, say so.
+## No phantom context
 
-**Respect existing patterns.** Match the codebase's existing style, naming, and conventions. Do not introduce a new pattern when the codebase already has an established one for the same concern. When in doubt, grep for prior art.
+Do not assume knowledge about the codebase that wasn't provided or read
+from files. "I think this project uses X" is not acceptable — verify by
+reading the relevant file or searching.
 
----
+## Check project infrastructure before hardcoding (P-02)
 
-## Abstraction
+Before hardcoding strings, config values, or patterns, check whether the
+project has an existing system for that concern (i18n, config management,
+logging, theming). If one exists, use it from the first line of code.
+Retrofitting is expensive.
 
-**No premature abstraction.** Do not extract functions, create utility modules, or add abstraction layers unless explicitly requested. Duplication is often better than the wrong abstraction. Three similar lines is not a call to action.
+## UI is not done until handlers work (P-01)
 
-**No speculative design.** Do not add configuration options, feature flags, plugin systems, or extension points that aren't needed by the current task. Build what's asked, not what might be useful later.
+A UI component is not complete until every interactive element (buttons,
+links, form inputs) has its handler fully implemented and connected.
+`() => {}` and `console.log` are not handlers. A component with stub
+handlers is not done.
 
----
+## Catch specific exceptions (P-07)
 
-## Decisions
+Never use bare `except: pass` or `catch {}` on operations that can fail
+in multiple ways. Catch only the expected failure (e.g., "column already
+exists") and log or raise everything else. Silent swallowing of all
+error types makes system state unknowable.
 
-**Ask vs. act threshold.** For ambiguous requirements, choose the most reasonable interpretation, implement it, and explicitly state your assumption. Do not ask clarifying questions unless you are genuinely blocked and cannot make a reasonable assumption. A wrong assumption stated clearly is more productive than a question.
+## Structural fix over local workaround (P-08)
 
-**Breaking changes require confirmation.** If a task would require changing a public API, schema, or interface that other code depends on, flag it and confirm before proceeding.
+When an import doesn't resolve, a path doesn't work, or a dependency
+isn't available — fix the structure (pyproject.toml, __init__.py,
+docker-compose.yml), not the call site (sys.path.insert, importlib
+hacks, deferred imports inside function bodies). A workaround in one
+module will be copied to every subsequent module.
 
----
+## Recognize complexity thresholds (P-10)
 
-## Completion
+When adding a build step, deployment task, or infrastructure concern,
+check whether the project has crossed a threshold: a second
+runtime/language, artifact placement outside the source tree,
+environment-specific behavior, 3+ build script entries, or a manual step
+in the README. If any signal is present, consolidate into an explicit
+build system before patching in the new step.
 
-**Test before claiming done.** If the project has tests, run them before marking a task complete. If a test fails and the fix is a one-liner, fix it. If it's non-trivial, report the failure explicitly — do not paper over it.
+## Consider the blast radius
 
-**Documentation as deliverable.** When adding new commands, flags, API endpoints, or user-facing features, update the relevant documentation (README, CHANGELOG, CLI help text) as part of the same task. Documentation is not optional.
+When changing behavior in a shared function or module, trace callers and
+consumers. A change to a shared function affects every caller — verify
+safety across all usage sites, not just the one you're looking at.
 
-**No leftover artifacts.** Do not leave debug print statements, commented-out code, TODO comments for things you could have done, or temporary files in the committed result.
+## Don't add unrequested features
+
+Fixing related broken code is expected. Adding new features, endpoints,
+or capabilities that weren't requested is scope creep. The line: "does
+this exist already and need fixing?" (do it) vs "should this exist?"
+(flag it, don't build it).
+
+## Documentation as deliverable
+
+When adding new commands, flags, API endpoints, or user-facing features,
+update the relevant documentation (README, CHANGELOG, CLI help text) as
+part of the same task. This is not optional.
