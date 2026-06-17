@@ -115,6 +115,15 @@ history, `NEXT.md` must be in `.gitignore` — `cc-init` adds it automatically.
 
 See `rules/next-step-handoff.md` for the full agent directive.
 
+### Cross-project roadmap (`ROADMAP.md`)
+
+`ROADMAP.md` at the engineering-dna repo root tracks in-progress and completed work
+across all projects. It is gitignored (local state only) and read by `project-pulse`
+to surface the roadmap section at the top of the morning triage report.
+
+The agent updates it on task completion: marking items done and adding next steps.
+See `rules/roadmap-tracking.md` for the agent directive.
+
 ---
 
 ## Claude Code Memory Hierarchy

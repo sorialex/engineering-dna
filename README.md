@@ -67,6 +67,7 @@ cc-doctor
 - `documentation.md` — Documentation-first rules
 - `code-review.md` — Pre-commit checklist
 - `next-step-handoff.md` — Agent writes NEXT.md at task completion for morning triage
+- `roadmap-tracking.md` — Agent updates ROADMAP.md in engineering-dna root to track cross-project progress
 
 **`bin/`** — CLI tools:
 - `cc-init` — Idempotent project bootstrapper (symlinks, templates, gitignore)
