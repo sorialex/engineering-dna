@@ -348,8 +348,8 @@ def main() -> None:
         help="Activity window in days (default: 7)"
     )
     parser.add_argument(
-        "--dna-path", default="~/engineering-dna",
-        help="Path to engineering-dna repo for ROADMAP.md (default: ~/engineering-dna)",
+        "--dna-path", default=None,
+        help="Path to engineering-dna repo for ROADMAP.md (auto-detected if omitted)",
     )
     args = parser.parse_args()
 
@@ -368,7 +368,13 @@ def main() -> None:
         print(f"No git repos found under {base}", file=sys.stderr)
         sys.exit(1)
 
-    roadmap = read_roadmap(args.dna_path)
+    # Auto-detect engineering-dna: check inside base_path first, then ~/engineering-dna
+    dna_path = args.dna_path or next(
+        (str(p) for p in [base / "engineering-dna", Path("~/engineering-dna").expanduser()]
+         if (p / "ROADMAP.md").exists()),
+        None
+    )
+    roadmap = read_roadmap(dna_path) if dna_path else None
     report = generate_report(projects, args.days, args.project, roadmap)
     print(report)
 
