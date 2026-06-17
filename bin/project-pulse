@@ -1,0 +1,377 @@
+#!/usr/bin/env python3
+"""
+project-pulse — Morning triage report for Claude projects.
+
+Usage:
+    project-pulse G:\\development
+    project-pulse ~/projects --days 3
+    project-pulse ~/projects --project my-app
+    project-pulse ~/projects --dna-path ~/engineering-dna
+"""
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+
+CLAUDE_SESSIONS_DIR = Path.home() / ".claude" / "projects"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# GIT
+# ──────────────────────────────────────────────────────────────────────
+
+def git_cmd(repo_path: str, args: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_path] + args,
+            capture_output=True, timeout=10
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.decode("utf-8", errors="replace").strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return None
+
+
+def collect_git(repo_path: str, days: int) -> dict:
+    since = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+    branch = git_cmd(repo_path, ["branch", "--show-current"])
+    status_raw = git_cmd(repo_path, ["status", "--porcelain"])
+    dirty_files = len(status_raw.splitlines()) if status_raw else 0
+
+    log_raw = git_cmd(repo_path, [
+        "log", f"--since={since}", "--oneline",
+        "--format=%h|%ai|%s", "--all"
+    ])
+    commits = []
+    if log_raw:
+        for line in log_raw.splitlines()[:15]:
+            parts = line.split("|", 2)
+            if len(parts) == 3:
+                commits.append({
+                    "hash": parts[0],
+                    "date": parts[1][:16],
+                    "message": parts[2][:120],
+                })
+
+    last_commit_date = git_cmd(repo_path, ["log", "-1", "--format=%ai"])
+
+    return {
+        "branch": branch or "unknown",
+        "dirty_files": dirty_files,
+        "last_commit": last_commit_date[:16] if last_commit_date else "never",
+        "recent_commits": commits,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# JSONL SESSIONS
+# ──────────────────────────────────────────────────────────────────────
+
+def _read_lines(filepath: Path) -> list[str] | None:
+    """Read file lines, handling Windows BOM, encoding variants, and file locking."""
+    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+        try:
+            with open(filepath, "r", encoding=encoding, errors="replace") as f:
+                return f.readlines()
+        except PermissionError:
+            # Claude Code may hold the file open — copy to a temp file and read that
+            try:
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".jsonl")
+                tmp.close()
+                shutil.copy2(str(filepath), tmp.name)
+                with open(tmp.name, "r", encoding=encoding, errors="replace") as f:
+                    lines = f.readlines()
+                os.unlink(tmp.name)
+                return lines
+            except Exception:
+                return None
+        except (OSError, UnicodeDecodeError):
+            continue
+    return None
+
+
+def find_session_files(project_path: str) -> list[Path]:
+    candidates = []
+
+    if CLAUDE_SESSIONS_DIR.exists():
+        for subdir in CLAUDE_SESSIONS_DIR.iterdir():
+            if not subdir.is_dir():
+                continue
+            jsonl_files = sorted(subdir.glob("*.jsonl"), key=os.path.getmtime)
+            project_name = Path(project_path).name.lower()
+            if project_name in subdir.name.lower():
+                candidates.extend(jsonl_files)
+                continue
+            for jf in jsonl_files[-2:]:
+                try:
+                    with open(jf, "r", encoding="utf-8-sig", errors="replace") as f:
+                        first_line = f.readline()
+                    if project_path in first_line or project_name in first_line:
+                        candidates.append(jf)
+                except (OSError, PermissionError, UnicodeDecodeError):
+                    continue
+
+    project_p = Path(project_path)
+    for pattern in [".claude/*.jsonl", ".claude/**/*.jsonl"]:
+        candidates.extend(project_p.glob(pattern))
+
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for c in candidates:
+        resolved = c.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+    unique.sort(key=os.path.getmtime, reverse=True)
+    return unique[:5]
+
+
+def parse_jsonl_session(filepath: Path, max_entries: int = 50) -> dict:
+    lines = _read_lines(filepath)
+    if lines is None:
+        return {"error": f"Could not read {filepath}"}
+
+    entries = []
+    for line in lines[-max_entries:]:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entries.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+
+    if not entries:
+        return {"error": "Empty session file"}
+
+    user_prompts: list[str] = []
+    timestamps: list[str] = []
+    task_ids: set[str] = set()
+
+    for entry in entries:
+        msg_type = entry.get("type") or entry.get("role") or ""
+        content = entry.get("content") or entry.get("message") or ""
+        ts = entry.get("timestamp") or entry.get("ts") or entry.get("created_at") or ""
+
+        if ts:
+            timestamps.append(str(ts)[:19])
+
+        text = ""
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = " ".join(
+                block.get("text", "") for block in content
+                if isinstance(block, dict) and block.get("type") == "text"
+            )
+
+        if msg_type in ("human", "user") and text:
+            user_prompts.append(text[:200])
+
+        if text:
+            task_ids.update(re.findall(
+                r"(?:task_id|TASK)[:\s]*([A-Z]+-[A-Z]+-\d+)",
+                text, re.IGNORECASE
+            ))
+
+    return {
+        "file": filepath.name,
+        "modified": datetime.fromtimestamp(filepath.stat().st_mtime).strftime("%Y-%m-%d %H:%M"),
+        "total_entries": len(lines),
+        "session_range": (
+            f"{timestamps[0]} → {timestamps[-1]}" if len(timestamps) >= 2
+            else (timestamps[0] if timestamps else "unknown")
+        ),
+        "last_user_prompts": user_prompts[-3:],
+        "task_ids": sorted(task_ids),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────
+# BREADCRUMBS
+# ──────────────────────────────────────────────────────────────────────
+
+def find_breadcrumbs(repo_path: str) -> dict:
+    """Return breadcrumb files. BACKLOG.md gets 2000 chars; others get 500."""
+    crumbs: dict[str, str] = {}
+
+    backlog_fp = Path(repo_path) / "BACKLOG.md"
+    if backlog_fp.exists():
+        try:
+            crumbs["BACKLOG.md"] = backlog_fp.read_text(
+                encoding="utf-8", errors="replace"
+            )[:2000].strip()
+        except OSError:
+            pass
+
+    for name in ("NEXT.md", "TODO.md", "COCKPIT.md"):
+        fp = Path(repo_path) / name
+        if fp.exists():
+            try:
+                crumbs[name] = fp.read_text(
+                    encoding="utf-8", errors="replace"
+                )[:500].strip()
+            except OSError:
+                pass
+
+    return crumbs
+
+
+# ──────────────────────────────────────────────────────────────────────
+# ROADMAP
+# ──────────────────────────────────────────────────────────────────────
+
+def read_roadmap(dna_path: str) -> str | None:
+    fp = Path(dna_path).expanduser().resolve() / "ROADMAP.md"
+    if not fp.exists():
+        return None
+    try:
+        return fp.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return None
+
+
+# ──────────────────────────────────────────────────────────────────────
+# REPORT
+# ──────────────────────────────────────────────────────────────────────
+
+def generate_report(
+    projects: dict,
+    days: int,
+    single: str | None,
+    roadmap: str | None,
+) -> str:
+    lines: list[str] = []
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    lines.append(f"# Project Pulse — {now}")
+    lines.append(f"_Window: last {days} days_\n")
+
+    if roadmap:
+        lines.append("## Roadmap (cross-project)")
+        lines.append(roadmap)
+        lines.append("")
+
+    if single:
+        projects = {k: v for k, v in projects.items() if k == single}
+        if not projects:
+            return f"Project '{single}' not found."
+
+    for name, path in projects.items():
+        lines.append(f"## {name}")
+        lines.append(f"📁 `{path}`\n")
+
+        if not Path(path).exists():
+            lines.append("⚠️  Path does not exist\n")
+            continue
+
+        git = collect_git(path, days)
+        lines.append(
+            f"**Branch:** {git['branch']}  |  "
+            f"**Dirty files:** {git['dirty_files']}  |  "
+            f"**Last commit:** {git['last_commit']}"
+        )
+
+        if git["recent_commits"]:
+            lines.append(f"\n**Commits ({len(git['recent_commits'])}):**")
+            for c in git["recent_commits"]:
+                lines.append(f"- `{c['hash']}` {c['date']} — {c['message']}")
+        else:
+            lines.append(f"\n_No commits in the last {days} days._")
+
+        sessions = find_session_files(path)
+        if sessions:
+            lines.append(f"\n**Claude Code sessions ({len(sessions)}):**")
+            for sf in sessions[:3]:
+                info = parse_jsonl_session(sf)
+                if "error" in info:
+                    lines.append(f"- {info['error']}")
+                else:
+                    lines.append(
+                        f"- **{info['file']}** "
+                        f"(modified: {info['modified']}, entries: {info['total_entries']})"
+                    )
+                    if info.get("task_ids"):
+                        lines.append(f"  Task IDs: {', '.join(info['task_ids'])}")
+                    if info.get("last_user_prompts"):
+                        lines.append("  Last prompts:")
+                        for prompt in info["last_user_prompts"]:
+                            lines.append(f"    → {prompt.replace(chr(10), ' ').strip()}")
+        else:
+            lines.append("\n_No Claude Code sessions found._")
+
+        crumbs = find_breadcrumbs(path)
+        if crumbs:
+            backlog = crumbs.pop("BACKLOG.md", None)
+            if backlog:
+                lines.append("\n**Backlog:**")
+                lines.append(f"  ```\n  {backlog}\n  ```")
+            if crumbs:
+                lines.append("\n**Breadcrumbs:**")
+                for fname, content in crumbs.items():
+                    lines.append(f"- **{fname}:**")
+                    lines.append(f"  ```\n  {content}\n  ```")
+
+        lines.append("")
+
+    lines.append("---")
+    lines.append("_Paste this output to Claude for triage._")
+    return "\n".join(lines)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# MAIN
+# ──────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Morning triage report for Claude projects.",
+        usage="project-pulse BASE_PATH [--days N] [--project NAME] [--dna-path PATH]",
+    )
+    parser.add_argument(
+        "base_path",
+        help="Root directory containing git repos (e.g. G:\\development)",
+    )
+    parser.add_argument("--project", "-p", help="Single project name to report on")
+    parser.add_argument(
+        "--days", "-d", type=int, default=7,
+        help="Activity window in days (default: 7)"
+    )
+    parser.add_argument(
+        "--dna-path", default="~/engineering-dna",
+        help="Path to engineering-dna repo for ROADMAP.md (default: ~/engineering-dna)",
+    )
+    args = parser.parse_args()
+
+    base = Path(args.base_path).expanduser().resolve()
+    if not base.exists():
+        print(f"Error: base path does not exist: {base}", file=sys.stderr)
+        sys.exit(1)
+
+    projects = {
+        child.name: str(child)
+        for child in sorted(base.iterdir())
+        if child.is_dir() and (child / ".git").exists()
+    }
+
+    if not projects:
+        print(f"No git repos found under {base}", file=sys.stderr)
+        sys.exit(1)
+
+    roadmap = read_roadmap(args.dna_path)
+    report = generate_report(projects, args.days, args.project, roadmap)
+    print(report)
+
+
+if __name__ == "__main__":
+    main()

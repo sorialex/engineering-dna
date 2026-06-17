@@ -71,6 +71,7 @@ cc-doctor
 **`bin/`** — CLI tools:
 - `cc-init` — Idempotent project bootstrapper (symlinks, templates, gitignore)
 - `cc-doctor` — Healthcheck for one or all projects
+- `project-pulse` — Morning triage report: git state, Claude sessions, BACKLOG, ROADMAP
 
 **`hooks/`** — Claude Code hook infrastructure (no active hooks; see `hooks/README.md`)
 
