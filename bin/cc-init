@@ -219,7 +219,7 @@ setup_project() {
 
   # Update .gitignore
   local gitignore="$project_root/.gitignore"
-  local required_entries=("CLAUDE.local.md" ".claude/settings.local.json")
+  local required_entries=("CLAUDE.local.md" ".claude/settings.local.json" "NEXT.md")
 
   for entry in "${required_entries[@]}"; do
     if [ -f "$gitignore" ] && grep -qF "$entry" "$gitignore"; then

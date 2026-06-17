@@ -66,6 +66,7 @@ cc-doctor
 - `commit-conventions.md` — Conventional commits policy
 - `documentation.md` — Documentation-first rules
 - `code-review.md` — Pre-commit checklist
+- `next-step-handoff.md` — Agent writes NEXT.md at task completion for morning triage
 
 **`bin/`** — CLI tools:
 - `cc-init` — Idempotent project bootstrapper (symlinks, templates, gitignore)

@@ -96,6 +96,27 @@ engineering-dna ships no active hooks — the `hooks/` directory exists as infra
 
 ---
 
+## NEXT.md Convention
+
+Each project root may contain a `NEXT.md` file written by the agent at the end of
+every task. It is the agent's responsibility — the human never edits it.
+
+Format:
+
+```
+date: YYYY-MM-DD
+done: <one-line summary of what was just completed>
+next: <1–3 lines describing the logical next step>
+```
+
+`project_pulse.py` reads this file alongside `BACKLOG.md` and `TODO.md` to generate
+the morning triage. Because it reflects ephemeral session state rather than project
+history, `NEXT.md` must be in `.gitignore` — `cc-init` adds it automatically.
+
+See `rules/next-step-handoff.md` for the full agent directive.
+
+---
+
 ## Claude Code Memory Hierarchy
 
 Claude Code loads context in this order (later = higher precedence):
